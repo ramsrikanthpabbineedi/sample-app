@@ -1,48 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { getCurrentUser } from '../../services/cognito.service';
+import { useAuth } from '../../contexts/AuthContext';
 
 const ProtectedRoute = ({ children, requireRole }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(null);
-  const [userRole, setUserRole] = useState(null);
+  const { isAuthenticated, userRole, loading } = useAuth();
   const location = useLocation();
 
-  useEffect(() => {
-    checkAuth();
-  }, [location.pathname]); // Re-check when path changes
+  console.log('🛡️ ProtectedRoute check:', { 
+    path: location.pathname,
+    isAuthenticated, 
+    userRole, 
+    requireRole,
+    loading 
+  });
 
-  const checkAuth = async () => {
-    try {
-      const user = getCurrentUser();
-      
-      if (user) {
-        user.getSession((err, session) => {
-          if (err || !session.isValid()) {
-            console.log('❌ Session invalid or expired');
-            setIsAuthenticated(false);
-            return;
-          }
-          
-          console.log('✅ Session valid');
-          setIsAuthenticated(true);
-          
-          // Get role from localStorage
-          const role = localStorage.getItem('userRole');
-          console.log('👤 User role from localStorage:', role);
-          setUserRole(role);
-        });
-      } else {
-        console.log('❌ No user found');
-        setIsAuthenticated(false);
-      }
-    } catch (error) {
-      console.error('❌ Auth check error:', error);
-      setIsAuthenticated(false);
-    }
-  };
-
-  // Show loading state
-  if (isAuthenticated === null) {
+  // Show loading state while checking auth
+  if (loading) {
     return (
       <div className="loading-container">
         <div className="spinner"></div>
@@ -53,19 +26,18 @@ const ProtectedRoute = ({ children, requireRole }) => {
 
   // Not authenticated - redirect to login
   if (!isAuthenticated) {
-    console.log('🔄 Redirecting to login (not authenticated)');
-    return <Navigate to="/login" replace />;
+    console.log('🔄 Not authenticated, redirecting to login');
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
   // Check role requirement
   if (requireRole) {
-    console.log('🔍 Checking role requirement:', requireRole);
-    console.log('🔍 User has role:', userRole);
+    console.log('🔍 Checking role requirement:', requireRole, 'vs', userRole);
     
     // Client role required
     if (requireRole === 'client') {
       if (userRole !== 'client' && userRole !== 'admin') {
-        console.log('🔄 Redirecting to client-access (no client role)');
+        console.log('🔄 No client access, redirecting to code entry');
         return <Navigate to="/client-access" replace />;
       }
     }
@@ -73,7 +45,7 @@ const ProtectedRoute = ({ children, requireRole }) => {
     // Admin role required
     if (requireRole === 'admin') {
       if (userRole !== 'admin') {
-        console.log('🔄 Redirecting to admin-access (no admin role)');
+        console.log('🔄 No admin access, redirecting to code entry');
         return <Navigate to="/admin-access" replace />;
       }
     }

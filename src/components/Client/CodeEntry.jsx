@@ -1,121 +1,70 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { validateClientCode } from '../../services/client.service';
-import { getSession } from '../../services/cognito.service';
+import { useAuth } from '../../contexts/AuthContext';
 import './Client.css';
 
 const CodeEntry = () => {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [debugInfo, setDebugInfo] = useState('');
   const navigate = useNavigate();
+  const { updateRole, userRole, refreshAuth } = useAuth();
 
   useEffect(() => {
-    checkAuthentication();
-    checkExistingRole();
-  }, []);
-
-  const checkAuthentication = async () => {
-    try {
-      const session = await getSession();
-      console.log('✅ Authenticated successfully');
-      setDebugInfo('✅ You are logged in');
-    } catch (err) {
-      console.error('❌ Not authenticated:', err);
-      setDebugInfo('❌ Authentication error - please login again');
-      setError('Please login first');
+    // If user already has client role, redirect
+    if (userRole === 'client' || userRole === 'admin') {
+      console.log('✅ User already has client access, redirecting...');
+      navigate('/client/dashboard', { replace: true });
     }
-  };
-
-  const checkExistingRole = () => {
-    const existingRole = localStorage.getItem('userRole');
-    if (existingRole === 'client' || existingRole === 'admin') {
-      console.log('User already has role:', existingRole);
-      setDebugInfo(`ℹ️ You already have ${existingRole} access`);
-      // Optionally auto-redirect
-      // navigate('/client/dashboard');
-    }
-  };
+  }, [userRole, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     
-    // Clean the code - remove CODE# prefix if user typed it
     const cleanCode = code.replace('CODE#', '').trim().toUpperCase();
-    
-    setDebugInfo(`Validating code: "${cleanCode}"`);
 
     try {
-      console.log('📤 Sending validation request...');
-      console.log('Code:', cleanCode);
+      console.log('📤 Validating client code');
       
       const response = await validateClientCode(cleanCode, 'client');
       
-      console.log('📥 Full Response:', response);
-      console.log('Response Data:', response.data);
-      console.log('Success:', response.data.success);
-      console.log('Role:', response.data.role);
+      console.log('📥 Response:', response.data);
 
       if (response.data && response.data.success) {
         const assignedRole = response.data.role;
         
-        console.log('✅ Code validated! Role assigned:', assignedRole);
+        console.log('✅ Code validated! Role:', assignedRole);
         
-        // Store role in localStorage
-        localStorage.setItem('userRole', assignedRole);
+        // Update role in context
+        updateRole(assignedRole);
         
-        // Verify it was stored
-        const storedRole = localStorage.getItem('userRole');
-        console.log('✅ Role stored in localStorage:', storedRole);
+        // Refresh auth state
+        await refreshAuth();
         
-        setDebugInfo(`✅ Success! Role: ${assignedRole}`);
-        
-        // Small delay to ensure state updates
+        // Navigate to dashboard
         setTimeout(() => {
           console.log('🚀 Navigating to dashboard...');
           navigate('/client/dashboard', { replace: true });
-          
-          // Force page refresh if navigation doesn't work
-          setTimeout(() => {
-            window.location.href = '/client/dashboard';
-          }, 500);
-        }, 100);
+        }, 200);
         
       } else {
-        setError('Validation response was not successful');
-        setDebugInfo('❌ Validation failed');
-        console.error('Unexpected response format:', response.data);
+        setError('Validation failed. Please try again.');
       }
     } catch (err) {
-      console.error('❌ Full error:', err);
-      console.error('Error response:', err.response);
+      console.error('❌ Validation error:', err);
       
-      let errorMessage = 'Failed to validate code. ';
-      let debugMessage = '';
-
-      if (err.response) {
-        debugMessage = `Status: ${err.response.status}`;
-        
-        if (err.response.status === 400) {
-          errorMessage = `The code "${cleanCode}" was not found. Please check with your trainer.`;
-        } else if (err.response.status === 403) {
-          errorMessage = 'Access denied. Invalid client code.';
-        } else if (err.response.data?.message) {
-          errorMessage = err.response.data.message;
-        }
-      } else if (err.request) {
-        errorMessage = 'No response from server.';
-        debugMessage = 'Network error';
+      if (err.response?.status === 400) {
+        setError('Invalid client code. Please contact your trainer.');
+      } else if (err.response?.status === 403) {
+        setError('Access denied. Invalid client code.');
+      } else if (err.response?.data?.message) {
+        setError(err.response.data.message);
       } else {
-        errorMessage = err.message;
-        debugMessage = 'Request failed';
+        setError('Failed to validate code. Please try again.');
       }
-
-      setError(errorMessage);
-      setDebugInfo(`❌ ${debugMessage}`);
     } finally {
       setLoading(false);
     }
@@ -126,22 +75,7 @@ const CodeEntry = () => {
       <div className="code-entry-card">
         <div className="code-entry-header">
           <h2>🔐 Client Access</h2>
-          <p>Enter your personal client code to access your dashboard</p>
-        </div>
-
-        {/* Debug Info Panel */}
-        <div style={{
-          padding: '10px',
-          background: '#f0f0f0',
-          borderRadius: '5px',
-          marginBottom: '20px',
-          fontSize: '12px',
-          fontFamily: 'monospace'
-        }}>
-          <strong>Debug Info:</strong><br/>
-          API: {process.env.REACT_APP_API_GATEWAY_URL || 'NOT SET'}<br/>
-          Current Role: {localStorage.getItem('userRole') || 'none'}<br/>
-          Status: {debugInfo}
+          <p>Enter your client code to access your dashboard</p>
         </div>
 
         <form onSubmit={handleSubmit} className="code-entry-form">
@@ -151,49 +85,27 @@ const CodeEntry = () => {
               type="text"
               value={code}
               onChange={(e) => setCode(e.target.value.toUpperCase())}
-              placeholder="Enter: FITNESS2024"
+              placeholder="Enter your code"
               required
               className="code-input"
+              autoFocus
             />
-            <small>Enter code WITHOUT the CODE# prefix</small>
           </div>
 
           {error && <div className="error-message">{error}</div>}
 
           <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? 'Validating...' : 'Validate Code'}
+            {loading ? 'Validating...' : 'Access Dashboard'}
           </button>
         </form>
 
         <div className="code-entry-info">
-          <p><strong>What you'll get access to:</strong></p>
-          <ul style={{ textAlign: 'left', paddingLeft: '20px' }}>
-            <li>Personal fitness dashboard</li>
-            <li>Track your weight, BMI, and goals</li>
-            <li>Daily meal tracking</li>
-            <li>Feedback from your trainer</li>
+          <p><strong>Benefits:</strong></p>
+          <ul style={{ textAlign: 'left', paddingLeft: '20px', marginTop: '10px' }}>
+            <li>Track your fitness progress</li>
+            <li>Monitor daily nutrition</li>
+            <li>Receive trainer feedback</li>
           </ul>
-        </div>
-
-        {/* Test Navigation Button */}
-        <div style={{ marginTop: '20px', textAlign: 'center' }}>
-          <button 
-            onClick={() => {
-              console.log('Test navigation clicked');
-              localStorage.setItem('userRole', 'client');
-              navigate('/client/dashboard');
-            }}
-            style={{
-              padding: '10px',
-              background: '#6c757d',
-              color: 'white',
-              border: 'none',
-              borderRadius: '5px',
-              cursor: 'pointer'
-            }}
-          >
-            🧪 Test Direct Navigation (Debug)
-          </button>
         </div>
       </div>
     </div>

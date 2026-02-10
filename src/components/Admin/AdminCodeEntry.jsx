@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { validateClientCode } from '../../services/client.service';
+import { useAuth } from '../../contexts/AuthContext';
 import './Admin.css';
 
 const AdminCodeEntry = () => {
@@ -8,25 +9,50 @@ const AdminCodeEntry = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { updateRole, userRole, refreshAuth } = useAuth();
+
+  useEffect(() => {
+    // If user already has admin role, redirect
+    if (userRole === 'admin') {
+      console.log('✅ User already has admin access, redirecting...');
+      navigate('/admin/dashboard', { replace: true });
+    }
+  }, [userRole, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
+    const cleanCode = code.replace('CODE#', '').trim().toUpperCase();
+
     try {
-      const response = await validateClientCode(code, 'admin');
-      console.log('Admin code validation response:', response.data);
+      console.log('📤 Validating admin code');
+      
+      const response = await validateClientCode(cleanCode, 'admin');
+      
+      console.log('📥 Response:', response.data);
 
       if (response.data.success && response.data.role === 'admin') {
-        localStorage.setItem('userRole', 'admin');
-        alert('Admin access granted!');
-        navigate('/admin/dashboard');
+        console.log('✅ Admin code validated!');
+        
+        // Update role in context
+        updateRole('admin');
+        
+        // Refresh auth state
+        await refreshAuth();
+        
+        // Navigate to admin dashboard
+        setTimeout(() => {
+          console.log('🚀 Navigating to admin dashboard...');
+          navigate('/admin/dashboard', { replace: true });
+        }, 200);
       }
     } catch (err) {
-      console.error('Admin code validation error:', err);
+      console.error('❌ Admin validation error:', err);
+      
       if (err.response?.status === 403) {
-        setError('This admin code is not assigned to your account.');
+        setError('Invalid admin code. Access denied.');
       } else if (err.response?.data?.message) {
         setError(err.response.data.message);
       } else {
@@ -42,7 +68,7 @@ const AdminCodeEntry = () => {
       <div className="admin-code-entry-card">
         <div className="admin-code-entry-header">
           <h2>🔐 Admin Access</h2>
-          <p>Enter the admin code to access the trainer dashboard</p>
+          <p>Enter your admin code to continue</p>
         </div>
 
         <form onSubmit={handleSubmit} className="admin-code-entry-form">
@@ -55,21 +81,16 @@ const AdminCodeEntry = () => {
               placeholder="Enter admin code"
               required
               className="admin-code-input"
+              autoFocus
             />
-            <small>This is your secure trainer access code</small>
           </div>
 
           {error && <div className="error-message">{error}</div>}
 
           <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? 'Validating...' : 'Access Admin Dashboard'}
+            {loading ? 'Validating...' : 'Access Dashboard'}
           </button>
         </form>
-
-        <div className="admin-security-notice">
-          <p>⚠️ <strong>Security Notice:</strong></p>
-          <p>This area is restricted to authorized trainers only.</p>
-        </div>
       </div>
     </div>
   );
